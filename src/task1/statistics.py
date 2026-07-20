@@ -1,12 +1,12 @@
 """
 statistics.py
-==========================
-Task1 统计分析模块
-==========================
+Task1 描述统计分析模块
 """
 
-import pandas as pd
+from pathlib import Path
+
 import numpy as np
+import pandas as pd
 
 from config import TABLE_DIR
 
@@ -14,67 +14,191 @@ from config import TABLE_DIR
 class StatisticsAnalyzer:
 
     def __init__(self, df):
+        self.df = df.copy()
 
-        self.df = df
+    def descriptive_statistics(self):
 
-        self.target_columns = [
+        cols = [
             "总进球数",
             "场均进球",
             "参赛队伍数量",
-            "总比赛场次"
+            "总比赛场次",
+            "总观众人数"
         ]
 
-    def calculate_statistics(self):
+        stats = pd.DataFrame(index=cols)
 
-        print("=" * 60)
-        print("开始计算统计量")
-        print("=" * 60)
+        stats["Mean"] = self.df[cols].mean()
+        stats["Median"] = self.df[cols].median()
+        stats["Std"] = self.df[cols].std()
+        stats["Variance"] = self.df[cols].var()
+        stats["Min"] = self.df[cols].min()
+        stats["Max"] = self.df[cols].max()
 
-        stats_data = []
+        stats["Range"] = (
+            stats["Max"] -
+            stats["Min"]
+        )
 
-        for col in self.target_columns:
+        stats["CV"] = (
+            stats["Std"] /
+            stats["Mean"]
+        )
 
-            data = self.df[col]
+        stats["Skewness"] = self.df[cols].skew()
 
-            stats = {
-                "指标": col,
-                "均值": round(data.mean(), 2),
-                "中位数": round(data.median(), 2),
-                "最大值": round(data.max(), 2),
-                "最小值": round(data.min(), 2),
-                "标准差": round(data.std(), 2),
-                "样本数": int(data.count())
-            }
+        stats["Kurtosis"] = self.df[cols].kurt()
 
-            stats_data.append(stats)
+        stats = stats.round(4)
 
-        self.stats_df = pd.DataFrame(stats_data)
+        stats.to_csv(
+            TABLE_DIR / "descriptive_statistics.csv",
+            encoding="utf-8-sig"
+        )
 
-        print("\n统计结果")
-        print("-" * 60)
-        print(self.stats_df.to_string(index=False))
-        print("-" * 60)
+        return stats
 
-        return self.stats_df
+    def trend_analysis(self):
 
-    def save_statistics(self):
+        goal = self.df["总进球数"]
 
-        output_path = TABLE_DIR / "statistics_summary.csv"
+        year = self.df["年份"]
 
-        self.stats_df.to_csv(
-            output_path,
+        diff = goal.diff()
+
+        increase_year = year.iloc[
+            diff.idxmax()
+        ]
+
+        decrease_year = year.iloc[
+            diff.idxmin()
+        ]
+
+        slope = np.polyfit(
+            year,
+            goal,
+            1
+        )[0]
+
+        trend = {
+
+            "平均总进球": goal.mean(),
+
+            "最高进球":
+
+                goal.max(),
+
+            "最低进球":
+
+                goal.min(),
+
+            "增长最快年份":
+
+                int(increase_year),
+
+            "下降最快年份":
+
+                int(decrease_year),
+
+            "趋势斜率":
+
+                slope
+
+        }
+
+        trend_df = pd.DataFrame(
+            trend,
+            index=[0]
+        )
+
+        trend_df.to_csv(
+            TABLE_DIR / "trend_analysis.csv",
             index=False,
             encoding="utf-8-sig"
         )
 
-        print(f"\n✓ 统计表格已保存到: {output_path}")
+        return trend
 
-        return output_path
+    def correlation_analysis(self):
+
+        cols = [
+
+            "总进球数",
+
+            "场均进球",
+
+            "参赛队伍数量",
+
+            "总比赛场次",
+
+            "总观众人数"
+
+        ]
+
+        corr = self.df[
+            cols
+        ].corr(
+            method="pearson"
+        )
+
+        corr.to_csv(
+
+            TABLE_DIR / "correlation_matrix.csv",
+
+            encoding="utf-8-sig"
+
+        )
+
+        return corr
+
+    def quality_report(self):
+
+        quality = pd.DataFrame({
+
+            "缺失值":
+
+                self.df.isnull().sum(),
+
+            "数据类型":
+
+                self.df.dtypes.astype(str)
+
+        })
+
+        quality["重复值"] = self.df.duplicated().sum()
+
+        quality.to_csv(
+
+            TABLE_DIR / "quality_report.csv",
+
+            encoding="utf-8-sig"
+
+        )
+
+        return quality
 
     def run(self):
 
-        self.calculate_statistics()
+        result = {
 
-        self.save_statistics()
+            "statistics":
 
-        return self.stats_df
+                self.descriptive_statistics(),
+
+            "trend":
+
+                self.trend_analysis(),
+
+            "correlation":
+
+                self.correlation_analysis(),
+
+            "quality":
+
+                self.quality_report()
+
+        }
+
+        print("✓ 描述统计完成")
+
+        return result
