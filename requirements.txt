@@ -1,0 +1,15 @@
+# APMCM世界杯竞赛项目依赖
+# 数据处理
+pandas>=2.0.0
+numpy>=1.24.0
+
+# 机器学习
+scikit-learn>=1.2.0
+statsmodels>=0.14.0
+
+# 可视化
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# 模型保存
+joblib>=1.2.0
