@@ -1,0 +1,2 @@
+# WorldCup_predition
+该项目是来自于2026年APMCM竞赛，对历届世界杯进行统计并比赛进行预测
