@@ -18,16 +18,7 @@ ENV/
 *.swo
 *~
 
-# Output files
-output/figures/
-output/reports/
-output/tables/
-output/models/
-
 # OS
 .DS_Store
 Thumbs.db
 *.log
-
-# Data
-data/*.csv
