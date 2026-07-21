@@ -31,10 +31,9 @@ class TotalGoalsPredictor:
 
         self.df = df.copy()
 
+        # 默认仅保留“赛前可获得”的特征，避免信息泄露
         self.feature_columns = [
-            "半场总进球", "观众人数", "阶段编码",
-            "半场主队进球", "半场客队进球",
-            "主队进球", "客队进球", "进球差"
+            "观众人数", "阶段编码", "赛事阶段序号", "年份"
         ]
 
         self.target_column = "总进球数"
@@ -50,6 +49,21 @@ class TotalGoalsPredictor:
 
         self.metrics = {}
 
+    def _build_stage_order(self):
+        """为赛事阶段构建有序编码，避免把类别编码当作目标信号。"""
+
+        stage_order = {
+            "小组赛": 1,
+            "1/8决赛": 2,
+            "1/4决赛": 3,
+            "半决赛": 4,
+            "季军赛": 5,
+            "决赛": 6,
+            "资格赛": 0
+        }
+
+        return stage_order
+
     def preprocess(self):
 
         print("\n" + "=" * 60)
@@ -58,7 +72,14 @@ class TotalGoalsPredictor:
 
         df = self.df.copy()
 
+        # 保留可解释的、赛前可用的特征
+        df["年份"] = pd.to_numeric(df["年份"], errors="coerce")
+        df["观众人数"] = pd.to_numeric(df["观众人数"], errors="coerce")
+
+        # 赛事阶段编码：仅作为类别特征，不引入赛后统计量
         df["阶段编码"] = self.label_encoder.fit_transform(df["阶段"])
+        stage_order = self._build_stage_order()
+        df["赛事阶段序号"] = df["阶段"].map(stage_order).fillna(0).astype(int)
 
         print(f"\n赛事阶段编码映射：")
         for stage, code in zip(self.label_encoder.classes_, range(len(self.label_encoder.classes_))):
@@ -70,6 +91,10 @@ class TotalGoalsPredictor:
 
         df[feature_cols] = df[feature_cols].apply(pd.to_numeric, errors="coerce")
         df = df.dropna(subset=feature_cols + [self.target_column])
+
+        # 按年份排序，便于时序切分
+        if "年份" in df.columns:
+            df = df.sort_values("年份").reset_index(drop=True)
 
         self.processed_df = df
 
@@ -87,9 +112,11 @@ class TotalGoalsPredictor:
         X = self.processed_df[self.feature_columns]
         y = self.processed_df[self.target_column]
 
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
-            X, y, test_size=test_size, random_state=random_state
-        )
+        split_idx = int(len(self.processed_df) * (1 - test_size))
+        self.X_train = X.iloc[:split_idx].copy()
+        self.X_test = X.iloc[split_idx:].copy()
+        self.y_train = y.iloc[:split_idx].copy()
+        self.y_test = y.iloc[split_idx:].copy()
 
         self.X_train_scaled = self.scaler.fit_transform(self.X_train)
         self.X_test_scaled = self.scaler.transform(self.X_test)
@@ -225,25 +252,11 @@ class TotalGoalsPredictor:
             stage_code = len(self.label_encoder.classes_)
             print(f"警告：阶段 '{stage}' 不在训练数据中，使用默认编码 {stage_code}")
 
-        if half_home_goals is None or half_away_goals is None:
-            half_home_goals = half_time_goals // 2
-            half_away_goals = half_time_goals - half_home_goals
-
-        if home_goals is None or away_goals is None:
-            home_goals = half_home_goals
-            away_goals = half_away_goals
-
-        goal_diff = home_goals - away_goals
-
         input_data = {
-            "半场总进球": half_time_goals,
             "观众人数": attendance,
             "阶段编码": stage_code,
-            "半场主队进球": half_home_goals,
-            "半场客队进球": half_away_goals,
-            "主队进球": home_goals,
-            "客队进球": away_goals,
-            "进球差": goal_diff
+            "赛事阶段序号": self._build_stage_order().get(stage, 0),
+            "年份": 2026
         }
 
         input_df = pd.DataFrame([input_data])
