@@ -64,7 +64,7 @@ class ReportGenerator:
 
     def add_image(self, image_path, caption=""):
         if os.path.exists(image_path):
-            rel_path = os.path.relpath(image_path, REPORT_DIR.parent)
+            rel_path = os.path.relpath(image_path, REPORT_DIR)
             rel_path = rel_path.replace("\\", "/")
             self.report_lines.append(f"![{caption}]({rel_path})")
             if caption:

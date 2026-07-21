@@ -61,10 +61,10 @@
 
 ## 三、趋势分析
 
-![总进球数年趋势图](figures/figure1_total_goals.png)
+![总进球数年趋势图](../figures/figure1_total_goals.png)
 *图：总进球数年趋势图*
 
-![场均进球数年趋势图](figures/figure2_average_goals.png)
+![场均进球数年趋势图](../figures/figure2_average_goals.png)
 *图：场均进球数年趋势图*
 
 ### 3.1 变化规律

@@ -48,7 +48,7 @@
 
 ## 三、半场进球与全场进球相关性
 
-![半场进球与全场进球散点图](figures/task2_half_time_full_time_scatter.png)
+![半场进球与全场进球散点图](../figures/task2_half_time_full_time_scatter.png)
 *图：半场进球与全场进球散点图*
 
 **Pearson相关系数**：0.6981
@@ -78,7 +78,7 @@
 
 - R²（决定系数）：1.0000
 
-![特征相关性热力图](figures/task2_correlation_heatmap.png)
+![特征相关性热力图](../figures/task2_correlation_heatmap.png)
 *图：特征相关性热力图*
 
 ### 4.1 过拟合分析

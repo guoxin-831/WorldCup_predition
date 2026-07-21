@@ -42,10 +42,10 @@
 
 ## 三、相关性分析
 
-![特征相关性热力图](figures/task3_correlation_heatmap.png)
+![特征相关性热力图](../figures/task3_correlation_heatmap.png)
 *图：特征相关性热力图*
 
-![特征与胜负相关性柱状图](figures/task3_correlation_bar.png)
+![特征与胜负相关性柱状图](../figures/task3_correlation_bar.png)
 *图：特征与胜负相关性柱状图*
 
 ### 3.1 关键特征
@@ -72,10 +72,10 @@
 
 **测试集F1分数**：0.5477
 
-![模型对比图](figures/task3_model_comparison.png)
+![模型对比图](../figures/task3_model_comparison.png)
 *图：模型对比图*
 
-![Voting集成混淆矩阵](figures/task3_confusion_matrix_Voting集成.png)
+![Voting集成混淆矩阵](../figures/task3_confusion_matrix_Voting集成.png)
 *图：Voting集成混淆矩阵*
 
 ### 4.1 模型对比

@@ -35,10 +35,10 @@
 
 分析了20届世界杯数据，计算四个核心指标的统计量。
 
-![总进球数年趋势图](figures/figure1_total_goals.png)
+![总进球数年趋势图](../figures/figure1_total_goals.png)
 *图：总进球数年趋势图*
 
-![场均进球数年趋势图](figures/figure2_average_goals.png)
+![场均进球数年趋势图](../figures/figure2_average_goals.png)
 *图：场均进球数年趋势图*
 
 **3.2 回归预测**
@@ -53,7 +53,7 @@
 
 **4.2 相关性分析**
 
-![半场进球与全场进球散点图](figures/task2_half_time_full_time_scatter.png)
+![半场进球与全场进球散点图](../figures/task2_half_time_full_time_scatter.png)
 *图：半场进球与全场进球散点图*
 
 半场进球与全场进球存在显著正相关。
@@ -70,14 +70,14 @@
 
 **5.2 相关性分析**
 
-![特征相关性热力图](figures/task3_correlation_heatmap.png)
+![特征相关性热力图](../figures/task3_correlation_heatmap.png)
 *图：特征相关性热力图*
 
 分析了各特征与比赛胜负的相关性，筛选出关键高相关特征。
 
 **5.3 分类预测**
 
-![模型对比图](figures/task3_model_comparison.png)
+![模型对比图](../figures/task3_model_comparison.png)
 *图：模型对比图*
 
 最优模型为逻辑回归，测试集准确率为45%。
