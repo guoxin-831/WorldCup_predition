@@ -31,6 +31,7 @@ class TotalGoalsPredictor:
 
         self.df = df.copy()
 
+        # 回退到更完整的单场特征，符合 Task2 题目语境
         self.feature_columns = [
             "半场总进球", "观众人数", "阶段编码",
             "半场主队进球", "半场客队进球",
@@ -58,6 +59,7 @@ class TotalGoalsPredictor:
 
         df = self.df.copy()
 
+        # 赛事阶段编码：仅作为类别特征，不引入赛后统计量
         df["阶段编码"] = self.label_encoder.fit_transform(df["阶段"])
 
         print(f"\n赛事阶段编码映射：")
@@ -457,3 +459,7 @@ class TotalGoalsPredictor:
         )
 
         return self.model
+
+
+class YearlyTotalGoalsPredictor:
+    pass
