@@ -28,12 +28,12 @@ class TeamFeatureEngineering:
         self.df = self.df.sort_values("年份").reset_index(drop=True)
 
         self.stage_rank = {
-            "小组赛": 1,
-            "1/8决赛": 2,
-            "1/4决赛": 3,
-            "半决赛": 4,
-            "三四名决赛": 5,
-            "决赛": 6
+            "决赛": 100,
+            "三四名决赛": 80,
+            "半决赛": 60,
+            "1/4决赛": 40,
+            "1/8决赛": 20,
+            "小组赛": 10
         }
 
     def _get_best_result(self, stage):
@@ -55,18 +55,22 @@ class TeamFeatureEngineering:
         if len(prev_data) == 0:
             return {}
 
-        home_teams = prev_data[["年份", "主队名称", "主队进球", "客队进球", "阶段", "胜负结果"]].copy()
+        home_teams = prev_data[["年份", "主队名称", "主队进球", "客队进球", "半场主队进球", "半场客队进球", "阶段", "胜负结果"]].copy()
         home_teams.rename(columns={
             "主队名称": "队伍名称",
             "主队进球": "进球数",
-            "客队进球": "失球数"
+            "客队进球": "失球数",
+            "半场主队进球": "半场进球数",
+            "半场客队进球": "半场失球数"
         }, inplace=True)
 
-        away_teams = prev_data[["年份", "客队名称", "客队进球", "主队进球", "阶段", "胜负结果"]].copy()
+        away_teams = prev_data[["年份", "客队名称", "客队进球", "主队进球", "半场客队进球", "半场主队进球", "阶段", "胜负结果"]].copy()
         away_teams.rename(columns={
             "客队名称": "队伍名称",
             "客队进球": "进球数",
-            "主队进球": "失球数"
+            "主队进球": "失球数",
+            "半场客队进球": "半场进球数",
+            "半场主队进球": "半场失球数"
         }, inplace=True)
 
         all_teams = pd.concat([home_teams, away_teams], ignore_index=True)
@@ -76,6 +80,7 @@ class TeamFeatureEngineering:
             历史比赛场次=("年份", "count"),
             历史总进球=("进球数", "sum"),
             历史总失球=("失球数", "sum"),
+            历史总半场进球=("半场进球数", "sum"),
             历史最高阶段=("阶段", lambda x: max(x, key=lambda s: self.stage_rank.get(s, 0)))
         ).reset_index()
 
@@ -83,6 +88,34 @@ class TeamFeatureEngineering:
         team_history["历史场均失球"] = team_history["历史总失球"] / team_history["历史比赛场次"]
         team_history["历史净胜球"] = team_history["历史总进球"] - team_history["历史总失球"]
         team_history["历史场均净胜球"] = team_history["历史场均进球"] - team_history["历史场均失球"]
+        team_history["历史场均半场进球"] = team_history["历史总半场进球"] / team_history["历史比赛场次"]
+
+        knockout_data = all_teams[all_teams["阶段"] != "小组赛"]
+        group_stage_data = all_teams[all_teams["阶段"] == "小组赛"]
+
+        knockout_win_rate = knockout_data[knockout_data["胜负结果"] == "主队胜"].groupby("队伍名称").size().reset_index(name="淘汰赛胜场").set_index("队伍名称")
+        knockout_total = knockout_data.groupby("队伍名称").size().reset_index(name="淘汰赛总场次").set_index("队伍名称")
+        
+        group_win_rate = group_stage_data[group_stage_data["胜负结果"] == "主队胜"].groupby("队伍名称").size().reset_index(name="小组赛胜场").set_index("队伍名称")
+        group_total = group_stage_data.groupby("队伍名称").size().reset_index(name="小组赛总场次").set_index("队伍名称")
+
+        team_history = team_history.set_index("队伍名称")
+        team_history["淘汰赛胜场"] = knockout_win_rate["淘汰赛胜场"].reindex(team_history.index).fillna(0)
+        team_history["淘汰赛总场次"] = knockout_total["淘汰赛总场次"].reindex(team_history.index).fillna(0)
+        team_history["小组赛胜场"] = group_win_rate["小组赛胜场"].reindex(team_history.index).fillna(0)
+        team_history["小组赛总场次"] = group_total["小组赛总场次"].reindex(team_history.index).fillna(0)
+        
+        team_history["历史淘汰赛胜率"] = team_history["淘汰赛胜场"] / team_history["淘汰赛总场次"].replace(0, np.nan)
+        team_history["历史小组赛胜率"] = team_history["小组赛胜场"] / team_history["小组赛总场次"].replace(0, np.nan)
+        
+        team_history["历史淘汰赛胜率"] = team_history["历史淘汰赛胜率"].fillna(0)
+        team_history["历史小组赛胜率"] = team_history["历史小组赛胜率"].fillna(0)
+
+        half_win_count = all_teams[all_teams["半场进球数"] > all_teams["半场失球数"]].groupby("队伍名称").size().reset_index(name="半场胜场").set_index("队伍名称")
+        team_history["半场胜场"] = half_win_count["半场胜场"].reindex(team_history.index).fillna(0)
+        team_history["历史半场胜率"] = team_history["半场胜场"] / team_history["历史比赛场次"]
+
+        team_history = team_history.reset_index()
 
         team_history["历史最佳成绩"] = team_history["历史最高阶段"].map(self._get_best_result)
         team_history["历史成绩排名"] = team_history["历史最高阶段"].map(self.stage_rank)
@@ -185,7 +218,11 @@ class TeamFeatureEngineering:
                     "历史场均净胜球": 0,
                     "历史成绩排名": 0,
                     "近3届场均进球": 0,
-                    "近3届胜率": 0
+                    "近3届胜率": 0,
+                    "历史淘汰赛胜率": 0,
+                    "历史小组赛胜率": 0,
+                    "历史场均半场进球": 0,
+                    "历史半场胜率": 0
                 }
 
                 home_hist = {**default_hist, **home_hist}
@@ -195,34 +232,27 @@ class TeamFeatureEngineering:
                     "年份": year,
                     "主队名称": home_team,
                     "客队名称": away_team,
-                    "主队历史参赛次数": home_hist["历史参赛次数"],
-                    "主队历史比赛场次": home_hist["历史比赛场次"],
-                    "主队历史场均进球": home_hist["历史场均进球"],
-                    "主队历史场均失球": home_hist["历史场均失球"],
-                    "主队历史净胜球": home_hist["历史净胜球"],
-                    "主队历史成绩排名": home_hist["历史成绩排名"],
-                    "主队近3届场均进球": home_hist["近3届场均进球"],
-                    "主队近3届胜率": home_hist["近3届胜率"],
-                    "客队历史参赛次数": away_hist["历史参赛次数"],
-                    "客队历史比赛场次": away_hist["历史比赛场次"],
-                    "客队历史场均进球": away_hist["历史场均进球"],
-                    "客队历史场均失球": away_hist["历史场均失球"],
-                    "客队历史净胜球": away_hist["历史净胜球"],
-                    "客队历史成绩排名": away_hist["历史成绩排名"],
-                    "客队近3届场均进球": away_hist["近3届场均进球"],
-                    "客队近3届胜率": away_hist["近3届胜率"],
+                    "阶段": row["阶段"],
+                    "阶段类型": 0 if row["阶段"] == "小组赛" else 1,
                     "参赛次数差": home_hist["历史参赛次数"] - away_hist["历史参赛次数"],
+                    "比赛场次差": home_hist["历史比赛场次"] - away_hist["历史比赛场次"],
                     "场均进球差": home_hist["历史场均进球"] - away_hist["历史场均进球"],
                     "场均失球差": home_hist["历史场均失球"] - away_hist["历史场均失球"],
                     "净胜球差": home_hist["历史净胜球"] - away_hist["历史净胜球"],
                     "成绩排名差": home_hist["历史成绩排名"] - away_hist["历史成绩排名"],
                     "近3届场均进球差": home_hist["近3届场均进球"] - away_hist["近3届场均进球"],
                     "近3届胜率差": home_hist["近3届胜率"] - away_hist["近3届胜率"],
+                    "场均净胜球差": home_hist["历史场均净胜球"] - away_hist["历史场均净胜球"],
+                    "淘汰赛胜率差": home_hist["历史淘汰赛胜率"] - away_hist["历史淘汰赛胜率"],
+                    "小组赛胜率差": home_hist["历史小组赛胜率"] - away_hist["历史小组赛胜率"],
+                    "场均半场进球差": home_hist["历史场均半场进球"] - away_hist["历史场均半场进球"],
+                    "半场胜率差": home_hist["历史半场胜率"] - away_hist["历史半场胜率"],
                     "交锋胜场": h2h_record["胜场"],
                     "交锋平局": h2h_record["平局"],
                     "交锋负场": h2h_record["负场"],
                     "交锋净胜球": h2h_record["净胜球"],
-                    "总进球数": row["总进球数"],
+                    "交锋总场次": h2h_record["胜场"] + h2h_record["平局"] + h2h_record["负场"],
+                    "交锋胜率": h2h_record["胜场"] / (h2h_record["胜场"] + h2h_record["平局"] + h2h_record["负场"]) if (h2h_record["胜场"] + h2h_record["平局"] + h2h_record["负场"]) > 0 else 0,
                     "胜负结果": row["胜负结果"]
                 }
 
@@ -342,12 +372,12 @@ class TeamFeatureEngineering:
         print("=" * 60)
 
         numeric_features = [
-            "主队历史参赛次数", "主队历史比赛场次", "主队历史场均进球",
-            "主队历史场均失球", "主队历史净胜球", "主队历史成绩排名",
-            "客队历史参赛次数", "客队历史比赛场次", "客队历史场均进球",
-            "客队历史场均失球", "客队历史净胜球", "客队历史成绩排名",
-            "参赛次数差", "场均进球差", "场均失球差",
-            "净胜球差", "成绩排名差"
+            "参赛次数差", "比赛场次差", "场均进球差", "场均失球差",
+            "净胜球差", "成绩排名差", "近3届场均进球差", "近3届胜率差",
+            "场均净胜球差", "淘汰赛胜率差", "小组赛胜率差",
+            "场均半场进球差", "半场胜率差", "阶段类型",
+            "交锋胜场", "交锋平局", "交锋负场", "交锋净胜球",
+            "交锋总场次", "交锋胜率"
         ]
 
         correlations = {}

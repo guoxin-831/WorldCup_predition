@@ -179,8 +179,8 @@ class FeatureVisualization:
 
         print("绘制特征分布图")
 
-        key_features = ["主队历史参赛次数", "主队历史场均进球", "主队历史成绩排名",
-                       "客队历史参赛次数", "客队历史场均进球", "客队历史成绩排名"]
+        key_features = ["阶段类型", "参赛次数差", "比赛场次差", "场均进球差",
+                       "净胜球差", "成绩排名差", "近3届胜率差", "交锋胜率"]
 
         available_features = [f for f in key_features if f in self.feature_matrix.columns]
 

@@ -8,7 +8,7 @@ Task3 第二小问：基于逻辑回归的比赛胜负分类预测
 2. 特征标准化与分类模型训练（含模型对比）
 3. 自动计算准确率、混淆矩阵并保存图片
 4. 封装预测接口，输入2026参赛队伍历史数据预测胜负
-5. 模型对比：逻辑回归、随机森林、梯度提升
+5. 模型对比：逻辑回归、随机森林、梯度提升、XGBoost、LightGBM、CatBoost、集成学习
 ==========================
 """
 
@@ -17,12 +17,24 @@ import numpy as np
 import joblib
 import random
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.ensemble import (
+    RandomForestClassifier, GradientBoostingClassifier,
+    VotingClassifier, StackingClassifier
+)
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (
     accuracy_score, confusion_matrix, classification_report,
     precision_score, recall_score, f1_score
 )
+import xgboost as xgb
+import lightgbm as lgb
+try:
+    from catboost import CatBoostClassifier
+    HAS_CATBOOST = True
+except ImportError:
+    HAS_CATBOOST = False
 import matplotlib.pyplot as plt
 import seaborn as sns
 from config import REPORT_DIR, MODEL_DIR, TABLE_DIR, FIGURE_DIR
@@ -59,16 +71,13 @@ class MatchResultClassifier:
         self.team_history = team_history.copy()
 
         self.feature_columns = [
-            "主队历史参赛次数", "主队历史比赛场次", "主队历史场均进球",
-            "主队历史场均失球", "主队历史净胜球", "主队历史成绩排名",
-            "主队近3届场均进球", "主队近3届胜率",
-            "客队历史参赛次数", "客队历史比赛场次", "客队历史场均进球",
-            "客队历史场均失球", "客队历史净胜球", "客队历史成绩排名",
-            "客队近3届场均进球", "客队近3届胜率",
-            "参赛次数差", "场均进球差", "场均失球差",
-            "净胜球差", "成绩排名差",
-            "近3届场均进球差", "近3届胜率差",
-            "交锋胜场", "交锋平局", "交锋负场", "交锋净胜球"
+            "阶段类型",
+            "参赛次数差", "比赛场次差", "场均进球差", "场均失球差",
+            "净胜球差", "成绩排名差", "近3届场均进球差", "近3届胜率差",
+            "场均净胜球差", "淘汰赛胜率差", "小组赛胜率差",
+            "场均半场进球差", "半场胜率差",
+            "交锋胜场", "交锋平局", "交锋负场", "交锋净胜球",
+            "交锋总场次", "交锋胜率"
         ]
 
         self.feature_columns = [c for c in self.feature_columns
@@ -86,10 +95,10 @@ class MatchResultClassifier:
                 random_state=RANDOM_SEED
             ),
             "随机森林": RandomForestClassifier(
-                n_estimators=200,
-                max_depth=5,
-                min_samples_split=10,
-                min_samples_leaf=5,
+                n_estimators=150,
+                max_depth=10,
+                min_samples_split=4,
+                min_samples_leaf=1,
                 class_weight="balanced",
                 random_state=RANDOM_SEED
             ),
@@ -100,8 +109,50 @@ class MatchResultClassifier:
                 min_samples_split=10,
                 min_samples_leaf=5,
                 random_state=RANDOM_SEED
+            ),
+            "XGBoost": xgb.XGBClassifier(
+                n_estimators=100,
+                max_depth=3,
+                learning_rate=0.1,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                reg_alpha=1.0,
+                scale_pos_weight=1,
+                random_state=RANDOM_SEED,
+                verbosity=0
+            ),
+            "LightGBM": lgb.LGBMClassifier(
+                n_estimators=100,
+                max_depth=3,
+                learning_rate=0.1,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                reg_alpha=1.0,
+                class_weight="balanced",
+                random_state=RANDOM_SEED,
+                verbose=-1
+            ),
+            "K近邻": KNeighborsClassifier(
+                n_neighbors=7,
+                weights="distance"
+            ),
+            "支持向量机": SVC(
+                kernel="rbf",
+                class_weight="balanced",
+                random_state=RANDOM_SEED,
+                probability=True
             )
         }
+
+        if HAS_CATBOOST:
+            self.models["CatBoost"] = CatBoostClassifier(
+                n_estimators=100,
+                max_depth=3,
+                learning_rate=0.1,
+                class_weights=[1, 1, 1],
+                random_state=RANDOM_SEED,
+                verbose=0
+            )
 
         self.X_train = None
         self.X_test = None
@@ -118,26 +169,27 @@ class MatchResultClassifier:
         print("Step 1: 数据集划分")
         print("=" * 60)
         print(f"随机种子: {RANDOM_SEED}")
-        print(f"训练集: 1930-2010年")
-        print(f"测试集: 2014年")
+        print(f"训练集比例: 80%")
+        print(f"测试集比例: 20%")
 
         available_features = [c for c in self.feature_columns
                              if c in self.feature_matrix.columns]
         self.feature_columns = available_features
 
-        train_df = self.feature_matrix[self.feature_matrix["年份"] <= 2010].copy()
-        test_df = self.feature_matrix[self.feature_matrix["年份"] == 2014].copy()
+        from sklearn.model_selection import train_test_split
+        
+        train_df, test_df = train_test_split(
+            self.feature_matrix,
+            test_size=0.2,
+            random_state=RANDOM_SEED,
+            stratify=self.feature_matrix[self.target_column]
+        )
 
         print(f"\n训练集年份范围: {train_df['年份'].min()} - {train_df['年份'].max()}")
         print(f"训练集样本数: {len(train_df)}")
 
-        print(f"\n测试集年份: {test_df['年份'].min() if len(test_df) > 0 else '无'}")
+        print(f"\n测试集年份范围: {test_df['年份'].min()} - {test_df['年份'].max()}")
         print(f"测试集样本数: {len(test_df)}")
-
-        if len(test_df) == 0:
-            print("警告: 2014年数据不足，使用2010年以后数据作为测试集")
-            test_df = self.feature_matrix[self.feature_matrix["年份"] > 2010].copy()
-            print(f"调整后测试集样本数: {len(test_df)}")
 
         print(f"\n训练集胜负分布:")
         print(train_df[self.target_column].value_counts())
@@ -148,6 +200,10 @@ class MatchResultClassifier:
         self.y_train = train_df[self.target_column]
         self.X_test = test_df[self.feature_columns]
         self.y_test = test_df[self.target_column]
+
+        self.label_mapping = {"主队胜": 0, "平局": 1, "客队胜": 2}
+        self.y_train_num = self.y_train.map(self.label_mapping)
+        self.y_test_num = self.y_test.map(self.label_mapping)
 
         self.test_df = test_df
 
@@ -191,16 +247,41 @@ class MatchResultClassifier:
         print("Step 3: 模型训练与对比")
         print("=" * 60)
 
+        models_need_scaling = ["逻辑回归", "K近邻", "支持向量机"]
+        models_need_int_labels = ["XGBoost", "CatBoost"]
+
         for name, model in self.models.items():
             print(f"\n训练 {name}...")
 
-            if name == "逻辑回归":
-                model.fit(self.X_train_scaled, self.y_train)
+            if name in models_need_int_labels:
+                if name in models_need_scaling:
+                    model.fit(self.X_train_scaled, self.y_train_num)
+                else:
+                    model.fit(self.X_train, self.y_train_num)
+                if name in models_need_scaling:
+                    y_train_pred_num = model.predict(self.X_train_scaled)
+                    y_test_pred_num = model.predict(self.X_test_scaled)
+                else:
+                    y_train_pred_num = model.predict(self.X_train)
+                    y_test_pred_num = model.predict(self.X_test)
+                inverse_mapping = {v: k for k, v in self.label_mapping.items()}
+                import numpy as np
+                if hasattr(y_train_pred_num, '__iter__') and not isinstance(y_train_pred_num, (int, float)):
+                    y_train_pred_num = np.array(y_train_pred_num).flatten()
+                    y_test_pred_num = np.array(y_test_pred_num).flatten()
+                y_train_pred = [inverse_mapping.get(int(p), p) for p in y_train_pred_num]
+                y_test_pred = [inverse_mapping.get(int(p), p) for p in y_test_pred_num]
             else:
-                model.fit(self.X_train, self.y_train)
-
-            y_train_pred = model.predict(self.X_train_scaled) if name == "逻辑回归" else model.predict(self.X_train)
-            y_test_pred = model.predict(self.X_test_scaled) if name == "逻辑回归" else model.predict(self.X_test)
+                if name in models_need_scaling:
+                    model.fit(self.X_train_scaled, self.y_train)
+                else:
+                    model.fit(self.X_train, self.y_train)
+                if name in models_need_scaling:
+                    y_train_pred = model.predict(self.X_train_scaled)
+                    y_test_pred = model.predict(self.X_test_scaled)
+                else:
+                    y_train_pred = model.predict(self.X_train)
+                    y_test_pred = model.predict(self.X_test)
 
             train_accuracy = accuracy_score(self.y_train, y_train_pred)
             test_accuracy = accuracy_score(self.y_test, y_test_pred)
@@ -221,6 +302,66 @@ class MatchResultClassifier:
             print(f"  训练集准确率: {train_accuracy:.4f}")
             print(f"  测试集准确率: {test_accuracy:.4f}")
             print(f"  测试集F1分数: {test_f1:.4f}")
+
+        print("\n训练集成学习模型...")
+
+        voting_estimators = [
+            ('lr', LogisticRegression(solver="lbfgs", max_iter=1000, class_weight="balanced", random_state=RANDOM_SEED)),
+            ('rf', RandomForestClassifier(n_estimators=50, max_depth=4, class_weight="balanced", random_state=RANDOM_SEED)),
+            ('xgb', xgb.XGBClassifier(n_estimators=50, max_depth=2, learning_rate=0.1, random_state=RANDOM_SEED, verbosity=0)),
+            ('lgb', lgb.LGBMClassifier(n_estimators=50, max_depth=2, learning_rate=0.1, random_state=RANDOM_SEED, verbose=-1))
+        ]
+
+        voting_clf = VotingClassifier(estimators=voting_estimators, voting='soft')
+        voting_clf.fit(self.X_train, self.y_train)
+
+        y_train_pred_voting = voting_clf.predict(self.X_train)
+        y_test_pred_voting = voting_clf.predict(self.X_test)
+
+        self.models["Voting集成"] = voting_clf
+        self.all_metrics["Voting集成"] = {
+            "训练集准确率": accuracy_score(self.y_train, y_train_pred_voting),
+            "测试集准确率": accuracy_score(self.y_test, y_test_pred_voting),
+            "测试集精确率": precision_score(self.y_test, y_test_pred_voting, average="weighted", zero_division=0),
+            "测试集召回率": recall_score(self.y_test, y_test_pred_voting, average="weighted", zero_division=0),
+            "测试集F1分数": f1_score(self.y_test, y_test_pred_voting, average="weighted", zero_division=0),
+            "混淆矩阵": confusion_matrix(self.y_test, y_test_pred_voting),
+            "y_test_pred": y_test_pred_voting
+        }
+
+        print(f"\nVoting集成:")
+        print(f"  训练集准确率: {self.all_metrics['Voting集成']['训练集准确率']:.4f}")
+        print(f"  测试集准确率: {self.all_metrics['Voting集成']['测试集准确率']:.4f}")
+        print(f"  测试集F1分数: {self.all_metrics['Voting集成']['测试集F1分数']:.4f}")
+
+        stacking_estimators = [
+            ('lr', LogisticRegression(solver="lbfgs", max_iter=1000, class_weight="balanced", random_state=RANDOM_SEED)),
+            ('rf', RandomForestClassifier(n_estimators=50, max_depth=4, class_weight="balanced", random_state=RANDOM_SEED)),
+            ('xgb', xgb.XGBClassifier(n_estimators=50, max_depth=2, learning_rate=0.1, random_state=RANDOM_SEED, verbosity=0))
+        ]
+
+        stacking_clf = StackingClassifier(estimators=stacking_estimators,
+                                           final_estimator=LogisticRegression(class_weight="balanced", random_state=RANDOM_SEED))
+        stacking_clf.fit(self.X_train, self.y_train)
+
+        y_train_pred_stack = stacking_clf.predict(self.X_train)
+        y_test_pred_stack = stacking_clf.predict(self.X_test)
+
+        self.models["Stacking集成"] = stacking_clf
+        self.all_metrics["Stacking集成"] = {
+            "训练集准确率": accuracy_score(self.y_train, y_train_pred_stack),
+            "测试集准确率": accuracy_score(self.y_test, y_test_pred_stack),
+            "测试集精确率": precision_score(self.y_test, y_test_pred_stack, average="weighted", zero_division=0),
+            "测试集召回率": recall_score(self.y_test, y_test_pred_stack, average="weighted", zero_division=0),
+            "测试集F1分数": f1_score(self.y_test, y_test_pred_stack, average="weighted", zero_division=0),
+            "混淆矩阵": confusion_matrix(self.y_test, y_test_pred_stack),
+            "y_test_pred": y_test_pred_stack
+        }
+
+        print(f"\nStacking集成:")
+        print(f"  训练集准确率: {self.all_metrics['Stacking集成']['训练集准确率']:.4f}")
+        print(f"  测试集准确率: {self.all_metrics['Stacking集成']['测试集准确率']:.4f}")
+        print(f"  测试集F1分数: {self.all_metrics['Stacking集成']['测试集F1分数']:.4f}")
 
         self._select_best_model()
 
@@ -248,7 +389,26 @@ class MatchResultClassifier:
         print("-" * 60)
         print(metrics_df.to_string())
 
-        self.best_model_name = metrics_df.index[0]
+        min_accuracy = 0.35
+        filtered_models = metrics_df[metrics_df["测试集准确率"] >= min_accuracy]
+        
+        eliminated_models = metrics_df[metrics_df["测试集准确率"] < min_accuracy]
+        if not eliminated_models.empty:
+            print(f"\n淘汰模型(测试集准确率 < {min_accuracy*100:.0f}%):")
+            print("-" * 40)
+            for name, row in eliminated_models.iterrows():
+                print(f"  {name}: 测试集准确率 {row['测试集准确率']:.4f}")
+
+        if filtered_models.empty:
+            print(f"\n⚠️ 所有模型测试集准确率均低于 {min_accuracy*100:.0f}%，使用全部模型")
+            filtered_models = metrics_df
+
+        print(f"\n保留模型({len(filtered_models)}个):")
+        print("-" * 40)
+        for name, row in filtered_models.iterrows():
+            print(f"  {name}: 测试集准确率 {row['测试集准确率']:.4f}, F1分数 {row['测试集F1分数']:.4f}")
+
+        self.best_model_name = filtered_models.index[0]
         self.best_model = self.models[self.best_model_name]
         self.best_model_metrics = self.all_metrics[self.best_model_name]
 
@@ -336,6 +496,168 @@ class MatchResultClassifier:
         self.plot_model_comparison()
 
         return m
+
+    def retrain_with_full_data(self):
+
+        print(f"\n使用全量数据重新训练 {self.best_model_name}...")
+
+        X_full = self.feature_matrix[self.feature_columns].copy()
+        y_full = self.feature_matrix[self.target_column].copy()
+
+        for col in self.feature_columns:
+            if X_full[col].isnull().any():
+                median_val = X_full[col].median()
+                if pd.isna(median_val):
+                    median_val = 0
+                X_full[col] = X_full[col].fillna(median_val)
+
+        X_full_scaled = self.scaler.fit_transform(X_full)
+
+        y_full_num = y_full.map(self.label_mapping)
+
+        models_need_scaling = ["逻辑回归", "K近邻", "支持向量机"]
+        models_need_int_labels = ["XGBoost", "CatBoost"]
+
+        if self.best_model_name in models_need_int_labels:
+            if self.best_model_name in models_need_scaling:
+                self.best_model.fit(X_full_scaled, y_full_num)
+            else:
+                self.best_model.fit(X_full, y_full_num)
+        else:
+            if self.best_model_name in models_need_scaling:
+                self.best_model.fit(X_full_scaled, y_full)
+            else:
+                self.best_model.fit(X_full, y_full)
+
+        print(f"✓ {self.best_model_name} 全量数据训练完成")
+        print(f"  训练样本数: {len(X_full)}")
+        print(f"  特征数量: {len(self.feature_columns)}")
+
+        self.X_full_scaled = X_full_scaled
+        self.X_full = X_full
+        self.y_full = y_full
+
+    def tune_hyperparameters(self):
+
+        print(f"\n对 {self.best_model_name} 进行参数调优...")
+
+        param_grids = {
+            "逻辑回归": {
+                "C": [0.1, 1, 10, 100],
+                "penalty": ["l2"],
+                "max_iter": [500, 1000, 2000]
+            },
+            "随机森林": {
+                "n_estimators": [50, 100, 150, 200],
+                "max_depth": [3, 5, 7, 10],
+                "min_samples_split": [2, 4, 6],
+                "min_samples_leaf": [1, 2, 3]
+            },
+            "梯度提升": {
+                "n_estimators": [50, 100, 150],
+                "max_depth": [2, 3, 5],
+                "learning_rate": [0.05, 0.1, 0.2],
+                "min_samples_split": [5, 10, 15]
+            },
+            "XGBoost": {
+                "n_estimators": [50, 100, 150],
+                "max_depth": [2, 3, 5],
+                "learning_rate": [0.05, 0.1, 0.2],
+                "subsample": [0.6, 0.8, 1.0],
+                "colsample_bytree": [0.6, 0.8, 1.0]
+            },
+            "LightGBM": {
+                "n_estimators": [50, 100, 150],
+                "max_depth": [2, 3, 5],
+                "learning_rate": [0.05, 0.1, 0.2],
+                "subsample": [0.6, 0.8, 1.0],
+                "colsample_bytree": [0.6, 0.8, 1.0]
+            },
+            "CatBoost": {
+                "n_estimators": [50, 100, 150],
+                "max_depth": [2, 3, 5],
+                "learning_rate": [0.05, 0.1, 0.2]
+            },
+            "K近邻": {
+                "n_neighbors": [3, 5, 7, 9, 11],
+                "weights": ["uniform", "distance"],
+                "metric": ["euclidean", "manhattan"]
+            },
+            "支持向量机": {
+                "C": [0.1, 1, 10, 100],
+                "gamma": ["scale", "auto", 0.1, 1],
+                "kernel": ["rbf"]
+            },
+            "Voting集成": {},
+            "Stacking集成": {}
+        }
+
+        if self.best_model_name not in param_grids or not param_grids[self.best_model_name]:
+            print(f"  {self.best_model_name} 暂不支持自动调参，使用默认参数")
+            return
+
+        try:
+            from sklearn.model_selection import GridSearchCV
+
+            param_grid = param_grids[self.best_model_name]
+
+            models_need_scaling = ["逻辑回归", "K近邻", "支持向量机"]
+            models_need_int_labels = ["XGBoost", "CatBoost"]
+
+            X_search = self.X_train_scaled if self.best_model_name in models_need_scaling else self.X_train
+            y_search = self.y_train_num if self.best_model_name in models_need_int_labels else self.y_train
+
+            grid_search = GridSearchCV(
+                estimator=self.best_model,
+                param_grid=param_grid,
+                cv=5,
+                scoring='accuracy',
+                n_jobs=-1,
+                verbose=1
+            )
+
+            grid_search.fit(X_search, y_search)
+
+            print(f"\n✓ 参数调优完成")
+            print(f"  最佳参数: {grid_search.best_params_}")
+            print(f"  交叉验证最佳准确率: {grid_search.best_score_:.4f}")
+
+            self.best_model = grid_search.best_estimator_
+
+            models_need_scaling_full = ["逻辑回归", "K近邻", "支持向量机"]
+            models_need_int_labels_full = ["XGBoost", "CatBoost"]
+
+            if self.best_model_name in models_need_int_labels_full:
+                if self.best_model_name in models_need_scaling_full:
+                    self.best_model.fit(self.X_full_scaled, self.y_full.map(self.label_mapping))
+                else:
+                    self.best_model.fit(self.X_full, self.y_full.map(self.label_mapping))
+            else:
+                if self.best_model_name in models_need_scaling_full:
+                    self.best_model.fit(self.X_full_scaled, self.y_full)
+                else:
+                    self.best_model.fit(self.X_full, self.y_full)
+
+            print(f"\n✓ 使用最优参数重新训练全量数据完成")
+
+        except Exception as e:
+            print(f"  参数调优失败: {str(e)}")
+            print(f"  使用默认参数重新训练全量数据...")
+            models_need_scaling_full = ["逻辑回归", "K近邻", "支持向量机"]
+            models_need_int_labels_full = ["XGBoost", "CatBoost"]
+
+            if self.best_model_name in models_need_int_labels_full:
+                if self.best_model_name in models_need_scaling_full:
+                    self.best_model.fit(self.X_full_scaled, self.y_full.map(self.label_mapping))
+                else:
+                    self.best_model.fit(self.X_full, self.y_full.map(self.label_mapping))
+            else:
+                if self.best_model_name in models_need_scaling_full:
+                    self.best_model.fit(self.X_full_scaled, self.y_full)
+                else:
+                    self.best_model.fit(self.X_full, self.y_full)
+
+            print(f"  ✓ 使用默认参数重新训练全量数据完成")
 
     def plot_confusion_matrix(self):
 
@@ -427,7 +749,8 @@ class MatchResultClassifier:
                 "历史场均进球": 0, "历史场均失球": 0,
                 "历史净胜球": 0, "历史成绩排名": 0,
                 "近3届场均进球": 0, "近3届胜率": 0,
-                "交锋胜场": 0, "交锋平局": 0, "交锋负场": 0, "交锋净胜球": 0
+                "历史场均净胜球": 0, "历史淘汰赛胜率": 0, "历史小组赛胜率": 0,
+                "历史场均半场进球": 0, "历史半场胜率": 0
             }
 
         if away_hist is None:
@@ -437,37 +760,31 @@ class MatchResultClassifier:
                 "历史场均进球": 0, "历史场均失球": 0,
                 "历史净胜球": 0, "历史成绩排名": 0,
                 "近3届场均进球": 0, "近3届胜率": 0,
-                "交锋胜场": 0, "交锋平局": 0, "交锋负场": 0, "交锋净胜球": 0
+                "历史场均净胜球": 0, "历史淘汰赛胜率": 0, "历史小组赛胜率": 0,
+                "历史场均半场进球": 0, "历史半场胜率": 0
             }
 
         input_data = {
-            "主队历史参赛次数": home_hist["历史参赛次数"],
-            "主队历史比赛场次": home_hist["历史比赛场次"],
-            "主队历史场均进球": home_hist["历史场均进球"],
-            "主队历史场均失球": home_hist["历史场均失球"],
-            "主队历史净胜球": home_hist["历史净胜球"],
-            "主队历史成绩排名": home_hist["历史成绩排名"],
-            "主队近3届场均进球": home_hist.get("近3届场均进球", 0),
-            "主队近3届胜率": home_hist.get("近3届胜率", 0),
-            "客队历史参赛次数": away_hist["历史参赛次数"],
-            "客队历史比赛场次": away_hist["历史比赛场次"],
-            "客队历史场均进球": away_hist["历史场均进球"],
-            "客队历史场均失球": away_hist["历史场均失球"],
-            "客队历史净胜球": away_hist["历史净胜球"],
-            "客队历史成绩排名": away_hist["历史成绩排名"],
-            "客队近3届场均进球": away_hist.get("近3届场均进球", 0),
-            "客队近3届胜率": away_hist.get("近3届胜率", 0),
+            "阶段类型": 1,
             "参赛次数差": home_hist["历史参赛次数"] - away_hist["历史参赛次数"],
+            "比赛场次差": home_hist["历史比赛场次"] - away_hist["历史比赛场次"],
             "场均进球差": home_hist["历史场均进球"] - away_hist["历史场均进球"],
             "场均失球差": home_hist["历史场均失球"] - away_hist["历史场均失球"],
             "净胜球差": home_hist["历史净胜球"] - away_hist["历史净胜球"],
             "成绩排名差": home_hist["历史成绩排名"] - away_hist["历史成绩排名"],
             "近3届场均进球差": home_hist.get("近3届场均进球", 0) - away_hist.get("近3届场均进球", 0),
             "近3届胜率差": home_hist.get("近3届胜率", 0) - away_hist.get("近3届胜率", 0),
-            "交锋胜场": home_hist.get("交锋胜场", 0),
-            "交锋平局": home_hist.get("交锋平局", 0),
-            "交锋负场": home_hist.get("交锋负场", 0),
-            "交锋净胜球": home_hist.get("交锋净胜球", 0)
+            "场均净胜球差": home_hist.get("历史场均净胜球", 0) - away_hist.get("历史场均净胜球", 0),
+            "淘汰赛胜率差": home_hist.get("历史淘汰赛胜率", 0) - away_hist.get("历史淘汰赛胜率", 0),
+            "小组赛胜率差": home_hist.get("历史小组赛胜率", 0) - away_hist.get("历史小组赛胜率", 0),
+            "场均半场进球差": home_hist.get("历史场均半场进球", 0) - away_hist.get("历史场均半场进球", 0),
+            "半场胜率差": home_hist.get("历史半场胜率", 0) - away_hist.get("历史半场胜率", 0),
+            "交锋胜场": 0,
+            "交锋平局": 0,
+            "交锋负场": 0,
+            "交锋净胜球": 0,
+            "交锋总场次": 0,
+            "交锋胜率": 0
         }
 
         input_df = pd.DataFrame([input_data])
@@ -482,6 +799,12 @@ class MatchResultClassifier:
             probabilities = self.best_model.predict_proba(input_df)[0]
 
         classes = self.best_model.classes_
+        
+        print(f"\n原始概率:")
+        for i, cls in enumerate(classes):
+            print(f"  {cls}: {probabilities[i]*100:.2f}%")
+        
+        prediction = classes[probabilities.argmax()]
 
         print(f"\n两队特征对比:")
         print("-" * 70)
@@ -510,13 +833,26 @@ class MatchResultClassifier:
         confidence = "高" if max_prob > 0.7 else "中" if max_prob > 0.5 else "低"
         print(f"\n预测置信度: {confidence} (最高概率 {max_prob*100:.2f}%)")
 
+        num_to_label = {0: "主队胜", 1: "平局", 2: "客队胜"}
+
+        if isinstance(prediction, (int, np.integer)):
+            prediction_label = num_to_label.get(prediction, str(prediction))
+        else:
+            prediction_label = prediction
+
+        prob_dict = dict(zip(classes, probabilities))
+        
+        home_win_prob = prob_dict.get("主队胜", prob_dict.get(0, 0))
+        draw_prob = prob_dict.get("平局", prob_dict.get(1, 0))
+        away_win_prob = prob_dict.get("客队胜", prob_dict.get(2, 0))
+
         result = {
             "主队": home_team,
             "客队": away_team,
-            "预测结果": prediction,
-            "主队胜概率": dict(zip(classes, probabilities)).get("主队胜", 0),
-            "平局概率": dict(zip(classes, probabilities)).get("平局", 0),
-            "客队胜概率": dict(zip(classes, probabilities)).get("客队胜", 0),
+            "预测结果": prediction_label,
+            "主队胜概率": home_win_prob,
+            "平局概率": draw_prob,
+            "客队胜概率": away_win_prob,
             "置信度": confidence,
             "使用模型": self.best_model_name
         }
@@ -753,10 +1089,27 @@ class MatchResultClassifier:
 
     def run(self):
 
+        print("\n" + "=" * 60)
+        print("阶段1: 80%/20%数据划分训练与评估")
+        print("=" * 60)
+
         self.split_data()
         self.preprocess()
         self.train_all_models()
         self.evaluate()
+
+        print("\n" + "=" * 60)
+        print(f"阶段2: 用全量数据重新训练最佳模型({self.best_model_name})")
+        print("=" * 60)
+
+        self.retrain_with_full_data()
+
+        print("\n" + "=" * 60)
+        print(f"阶段3: {self.best_model_name} 参数调优")
+        print("=" * 60)
+
+        self.tune_hyperparameters()
+
         self.save_results()
 
         if "Brazil" in self.team_history["队伍名称"].values:

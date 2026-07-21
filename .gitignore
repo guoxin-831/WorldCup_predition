@@ -22,3 +22,9 @@ ENV/
 .DS_Store
 Thumbs.db
 *.log
+
+# IDE tools
+.trae/
+
+# CatBoost
+catboost_info/
