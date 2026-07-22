@@ -10,7 +10,7 @@ import matplotlib.font_manager as fm
 import seaborn as sns
 import numpy as np
 import pandas as pd
-from config import FIGURE_DIR
+from src.config import FIGURE_DIR
 
 
 def setup_chinese_font():

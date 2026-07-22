@@ -28,3 +28,6 @@ Thumbs.db
 
 # CatBoost
 catboost_info/
+
+# Output directory
+output/

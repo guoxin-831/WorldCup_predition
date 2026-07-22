@@ -16,7 +16,7 @@ from sklearn.tree import DecisionTreeRegressor
 from sklearn.preprocessing import StandardScaler, PolynomialFeatures
 from sklearn.model_selection import cross_val_score, TimeSeriesSplit
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
-from config import REPORT_DIR, MODEL_DIR
+from src.config import REPORT_DIR, MODEL_DIR
 import joblib
 
 

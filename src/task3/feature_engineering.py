@@ -14,16 +14,32 @@ Task3 第一小问：队伍历史特征工程
 
 import pandas as pd
 import numpy as np
-from config import TABLE_DIR, REPORT_DIR
+from typing import Dict, Any, Optional
+from src.config import TABLE_DIR, REPORT_DIR
+from .utils import setup_logger, handle_exceptions, calculate_time_diff
+
+
+logger = setup_logger(__name__)
 
 
 class TeamFeatureEngineering:
     """
     队伍历史特征工程（无数据泄漏版本）
+
+    Attributes:
+        df: 原始数据框
+        stage_rank: 阶段排名映射
+        history_cache: 历史数据缓存 {year: history_dict}
+        h2h_cache: 交锋记录缓存 {year: h2h_dict}
     """
 
-    def __init__(self, df):
+    def __init__(self, df: pd.DataFrame):
+        """
+        初始化特征工程类
 
+        Args:
+            df: 包含比赛数据的数据框
+        """
         self.df = df.copy()
         self.df = self.df.sort_values("年份").reset_index(drop=True)
 
@@ -35,6 +51,39 @@ class TeamFeatureEngineering:
             "1/8决赛": 20,
             "小组赛": 10
         }
+
+        self.history_cache: Dict[int, Dict[str, Any]] = {}
+        self.h2h_cache: Dict[int, Dict[tuple, Dict[str, int]]] = {}
+
+        self._preprocess_team_data()
+
+    def _preprocess_team_data(self):
+        """
+        预处理队伍数据，构建基础数据结构
+
+        提前将主队和客队数据统一处理，减少重复计算
+        """
+        home_teams = self.df[["年份", "主队名称", "主队进球", "客队进球", "半场主队进球", "半场客队进球", "阶段", "胜负结果"]].copy()
+        home_teams.rename(columns={
+            "主队名称": "队伍名称",
+            "主队进球": "进球数",
+            "客队进球": "失球数",
+            "半场主队进球": "半场进球数",
+            "半场客队进球": "半场失球数"
+        }, inplace=True)
+
+        away_teams = self.df[["年份", "客队名称", "客队进球", "主队进球", "半场客队进球", "半场主队进球", "阶段", "胜负结果"]].copy()
+        away_teams.rename(columns={
+            "客队名称": "队伍名称",
+            "客队进球": "进球数",
+            "主队进球": "失球数",
+            "半场客队进球": "半场进球数",
+            "半场主队进球": "半场失球数"
+        }, inplace=True)
+
+        self.all_teams = pd.concat([home_teams, away_teams], ignore_index=True)
+
+        logger.debug("队伍数据预处理完成")
 
     def _get_best_result(self, stage):
 
@@ -48,34 +97,29 @@ class TeamFeatureEngineering:
         }
         return result_map.get(stage, stage)
 
-    def _calculate_history_up_to_year(self, year):
+    def _calculate_history_up_to_year(self, year: int) -> Dict[str, Any]:
+        """
+        计算指定年份之前所有队伍的历史数据（带缓存）
 
-        prev_data = self.df[self.df["年份"] < year].copy()
+        Args:
+            year: 截止年份（不包含）
+
+        Returns:
+            队伍历史数据字典 {team_name: {stat: value}}
+        """
+        if year in self.history_cache:
+            logger.debug(f"使用缓存: 年份 {year}")
+            return self.history_cache[year]
+
+        prev_data = self.df[self.df["年份"] < year]
 
         if len(prev_data) == 0:
+            self.history_cache[year] = {}
             return {}
 
-        home_teams = prev_data[["年份", "主队名称", "主队进球", "客队进球", "半场主队进球", "半场客队进球", "阶段", "胜负结果"]].copy()
-        home_teams.rename(columns={
-            "主队名称": "队伍名称",
-            "主队进球": "进球数",
-            "客队进球": "失球数",
-            "半场主队进球": "半场进球数",
-            "半场客队进球": "半场失球数"
-        }, inplace=True)
+        prev_team_data = self.all_teams[self.all_teams["年份"] < year]
 
-        away_teams = prev_data[["年份", "客队名称", "客队进球", "主队进球", "半场客队进球", "半场主队进球", "阶段", "胜负结果"]].copy()
-        away_teams.rename(columns={
-            "客队名称": "队伍名称",
-            "客队进球": "进球数",
-            "主队进球": "失球数",
-            "半场客队进球": "半场进球数",
-            "半场主队进球": "半场失球数"
-        }, inplace=True)
-
-        all_teams = pd.concat([home_teams, away_teams], ignore_index=True)
-
-        team_history = all_teams.groupby("队伍名称").agg(
+        team_history = prev_team_data.groupby("队伍名称").agg(
             历史参赛次数=("年份", "nunique"),
             历史比赛场次=("年份", "count"),
             历史总进球=("进球数", "sum"),
@@ -90,12 +134,12 @@ class TeamFeatureEngineering:
         team_history["历史场均净胜球"] = team_history["历史场均进球"] - team_history["历史场均失球"]
         team_history["历史场均半场进球"] = team_history["历史总半场进球"] / team_history["历史比赛场次"]
 
-        knockout_data = all_teams[all_teams["阶段"] != "小组赛"]
-        group_stage_data = all_teams[all_teams["阶段"] == "小组赛"]
+        knockout_data = prev_team_data[prev_team_data["阶段"] != "小组赛"]
+        group_stage_data = prev_team_data[prev_team_data["阶段"] == "小组赛"]
 
         knockout_win_rate = knockout_data[knockout_data["胜负结果"] == "主队胜"].groupby("队伍名称").size().reset_index(name="淘汰赛胜场").set_index("队伍名称")
         knockout_total = knockout_data.groupby("队伍名称").size().reset_index(name="淘汰赛总场次").set_index("队伍名称")
-        
+
         group_win_rate = group_stage_data[group_stage_data["胜负结果"] == "主队胜"].groupby("队伍名称").size().reset_index(name="小组赛胜场").set_index("队伍名称")
         group_total = group_stage_data.groupby("队伍名称").size().reset_index(name="小组赛总场次").set_index("队伍名称")
 
@@ -104,14 +148,14 @@ class TeamFeatureEngineering:
         team_history["淘汰赛总场次"] = knockout_total["淘汰赛总场次"].reindex(team_history.index).fillna(0)
         team_history["小组赛胜场"] = group_win_rate["小组赛胜场"].reindex(team_history.index).fillna(0)
         team_history["小组赛总场次"] = group_total["小组赛总场次"].reindex(team_history.index).fillna(0)
-        
+
         team_history["历史淘汰赛胜率"] = team_history["淘汰赛胜场"] / team_history["淘汰赛总场次"].replace(0, np.nan)
         team_history["历史小组赛胜率"] = team_history["小组赛胜场"] / team_history["小组赛总场次"].replace(0, np.nan)
-        
+
         team_history["历史淘汰赛胜率"] = team_history["历史淘汰赛胜率"].fillna(0)
         team_history["历史小组赛胜率"] = team_history["历史小组赛胜率"].fillna(0)
 
-        half_win_count = all_teams[all_teams["半场进球数"] > all_teams["半场失球数"]].groupby("队伍名称").size().reset_index(name="半场胜场").set_index("队伍名称")
+        half_win_count = prev_team_data[prev_team_data["半场进球数"] > prev_team_data["半场失球数"]].groupby("队伍名称").size().reset_index(name="半场胜场").set_index("队伍名称")
         team_history["半场胜场"] = half_win_count["半场胜场"].reindex(team_history.index).fillna(0)
         team_history["历史半场胜率"] = team_history["半场胜场"] / team_history["历史比赛场次"]
 
@@ -121,33 +165,55 @@ class TeamFeatureEngineering:
         team_history["历史成绩排名"] = team_history["历史最高阶段"].map(self.stage_rank)
 
         recent_years = sorted(prev_data["年份"].unique())[-3:]
-        recent_data = all_teams[all_teams["年份"].isin(recent_years)]
+        recent_data = prev_team_data[prev_team_data["年份"].isin(recent_years)]
 
-        recent_stats = recent_data.groupby("队伍名称").agg(
-            近3届比赛场次=("年份", "count"),
-            近3届总进球=("进球数", "sum"),
-            近3届总失球=("失球数", "sum")
-        ).reset_index()
+        if len(recent_data) > 0:
+            recent_stats = recent_data.groupby("队伍名称").agg(
+                近3届比赛场次=("年份", "count"),
+                近3届总进球=("进球数", "sum"),
+                近3届总失球=("失球数", "sum")
+            ).reset_index()
 
-        recent_stats["近3届场均进球"] = recent_stats["近3届总进球"] / recent_stats["近3届比赛场次"]
-        recent_stats["近3届胜率"] = recent_data[recent_data["胜负结果"] == "主队胜"].groupby("队伍名称").size().reset_index(name="近3届胜场").set_index("队伍名称").reindex(recent_stats["队伍名称"]).fillna(0).values.flatten() / recent_stats["近3届比赛场次"]
+            recent_stats["近3届场均进球"] = recent_stats["近3届总进球"] / recent_stats["近3届比赛场次"]
+            recent_stats["近3届胜率"] = recent_data[recent_data["胜负结果"] == "主队胜"].groupby("队伍名称").size().reset_index(name="近3届胜场").set_index("队伍名称").reindex(recent_stats["队伍名称"]).fillna(0).values.flatten() / recent_stats["近3届比赛场次"]
 
-        team_history = team_history.merge(
-            recent_stats[["队伍名称", "近3届场均进球", "近3届胜率"]],
-            on="队伍名称",
-            how="left"
-        ).fillna(0)
+            team_history = team_history.merge(
+                recent_stats[["队伍名称", "近3届场均进球", "近3届胜率"]],
+                on="队伍名称",
+                how="left"
+            ).fillna(0)
+        else:
+            team_history["近3届场均进球"] = 0
+            team_history["近3届胜率"] = 0
 
-        return team_history.set_index("队伍名称").to_dict("index")
+        result = team_history.set_index("队伍名称").to_dict("index")
+        self.history_cache[year] = result
 
-    def _calculate_head_to_head(self, year):
+        logger.debug(f"计算完成并缓存: 年份 {year}, 队伍数量 {len(result)}")
 
-        prev_data = self.df[self.df["年份"] < year].copy()
+        return result
+
+    def _calculate_head_to_head(self, year: int) -> Dict[tuple, Dict[str, int]]:
+        """
+        计算指定年份之前所有队伍之间的交锋记录（带缓存）
+
+        Args:
+            year: 截止年份（不包含）
+
+        Returns:
+            交锋记录字典 {(home_team, away_team): {胜场, 平局, 负场, 净胜球}}
+        """
+        if year in self.h2h_cache:
+            logger.debug(f"使用缓存: 交锋记录 年份 {year}")
+            return self.h2h_cache[year]
+
+        prev_data = self.df[self.df["年份"] < year]
 
         if len(prev_data) == 0:
+            self.h2h_cache[year] = {}
             return {}
 
-        h2h_records = {}
+        h2h_records: Dict[tuple, Dict[str, int]] = {}
 
         for _, row in prev_data.iterrows():
             home_team = row["主队名称"]
@@ -176,6 +242,10 @@ class TeamFeatureEngineering:
                 h2h_records[key1]["净胜球"] += (home_goals - away_goals)
                 h2h_records[key2]["胜场"] += 1
                 h2h_records[key2]["净胜球"] += (away_goals - home_goals)
+
+        self.h2h_cache[year] = h2h_records
+
+        logger.debug(f"计算完成并缓存: 交锋记录 年份 {year}, 交锋对数 {len(h2h_records)}")
 
         return h2h_records
 

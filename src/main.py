@@ -5,24 +5,28 @@ main.py
 ==========================
 """
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import pandas as pd
 
-from task1.loader import WorldCupLoader
-from task1.statistics import StatisticsAnalyzer
-from task1.visualization import Visualizer
-from task1.report import ReportGenerator as Task1Report
-from task1.regression import OptimizedRegressionModel
+from src.task1.loader import WorldCupLoader
+from src.task1.statistics import StatisticsAnalyzer
+from src.task1.visualization import Visualizer
+from src.task1.report import ReportGenerator as Task1Report
+from src.task1.regression import OptimizedRegressionModel
 
-from task2.loader import MatchLoader
-from task2.statistics import MatchStatistics
-from task2.visualization import MatchVisualization
-from task2.linear_regression import TotalGoalsPredictor
+from src.task2.loader import MatchLoader
+from src.task2.statistics import MatchStatistics
+from src.task2.visualization import MatchVisualization
+from src.task2.linear_regression import TotalGoalsPredictor
 
-from task3.feature_engineering import TeamFeatureEngineering
-from task3.visualization import FeatureVisualization
-from task3.logistic_regression import MatchResultClassifier
+from src.task3.feature_engineering import TeamFeatureEngineering
+from src.task3.visualization import FeatureVisualization
+from src.task3.logistic_regression import MatchResultClassifier
 
-from report_generator import (
+from src.report_generator import (
     generate_task1_report, generate_task2_report,
     generate_task3_report, generate_final_report
 )

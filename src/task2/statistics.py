@@ -8,7 +8,7 @@ Task2 统计分析模块
 import pandas as pd
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
-from config import TABLE_DIR, REPORT_DIR
+from src.config import TABLE_DIR, REPORT_DIR
 
 
 class MatchStatistics:

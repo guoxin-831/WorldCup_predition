@@ -6,7 +6,7 @@ Task1 数据读取与预处理
 """
 
 import pandas as pd
-from config import DATA_DIR
+from src.config import DATA_DIR
 
 
 class WorldCupLoader:

@@ -9,7 +9,7 @@ Task1 报告生成模块
 import pandas as pd
 import numpy as np
 
-from config import REPORT_DIR
+from src.config import REPORT_DIR
 
 
 class ReportGenerator:

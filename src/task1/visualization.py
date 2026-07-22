@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import seaborn as sns
 
-from config import FIGURE_DIR
+from src.config import FIGURE_DIR
 
 
 class Visualizer:

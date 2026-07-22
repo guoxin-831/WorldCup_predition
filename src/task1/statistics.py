@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from config import TABLE_DIR
+from src.config import TABLE_DIR
 
 
 class StatisticsAnalyzer:

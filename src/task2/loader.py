@@ -7,7 +7,7 @@ Task2 数据读取与预处理
 
 import pandas as pd
 import numpy as np
-from config import DATA_DIR, OUTPUT_DIR
+from src.config import DATA_DIR, OUTPUT_DIR
 
 
 class MatchLoader:

@@ -13,7 +13,7 @@ report_generator.py
 
 import os
 import pandas as pd
-from config import REPORT_DIR, TABLE_DIR, FIGURE_DIR
+from src.config import REPORT_DIR, TABLE_DIR, FIGURE_DIR
 
 
 class ReportGenerator:

@@ -19,7 +19,7 @@ from sklearn.ensemble import (
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from sklearn.model_selection import cross_val_score, TimeSeriesSplit
-from config import MODEL_DIR, REPORT_DIR, FIGURE_DIR
+from src.config import MODEL_DIR, REPORT_DIR, FIGURE_DIR
 
 RANDOM_SEED = 42
 
