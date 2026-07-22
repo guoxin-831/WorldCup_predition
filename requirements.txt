@@ -6,6 +6,9 @@ numpy>=1.24.0
 # 机器学习
 scikit-learn>=1.2.0
 statsmodels>=0.14.0
+xgboost>=1.7.0
+lightgbm>=3.3.0
+catboost>=1.2.0
 
 # 可视化
 matplotlib>=3.7.0
