@@ -482,6 +482,4 @@ class MatchResultClassifier:
 
         self.print_summary()
 
-        self.interactive_predict()
-
         return self.best_model
