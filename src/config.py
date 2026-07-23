@@ -15,8 +15,25 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 
 # ----------------------------
 # 数据目录
+# 优先使用系统根目录下的 /testdata 或 C:\testdata（竞赛环境）
+# 如果不存在则回退到项目内的 data/ 目录（开发环境）
 # ----------------------------
+TESTDATA_DIRS = [
+    Path("/testdata"),
+    Path("C:/testdata"),
+    Path("C:\\testdata"),
+    Path("/tmp/testdata"),
+    Path("testdata")
+]
+
 DATA_DIR = ROOT_DIR / "data"
+for testdata_dir in TESTDATA_DIRS:
+    if testdata_dir.exists() and testdata_dir.is_dir():
+        DATA_DIR = testdata_dir
+        print(f"检测到竞赛环境，使用数据目录: {DATA_DIR}")
+        break
+else:
+    print(f"使用开发环境数据目录: {DATA_DIR}")
 
 # ----------------------------
 # 输出目录

@@ -31,6 +31,9 @@ from src.report_generator import (
     generate_task3_report, generate_final_report
 )
 
+import os
+import sys
+
 
 def task1():
 
@@ -282,32 +285,33 @@ def task3():
     print("15. 分类预测报告: output/reports/task3_logistic_regression_report.txt")
 
     return {
-        "df": df,
-        "sample_count": len(df),
-        "team_count": len(feature_eng.team_history),
-        "team_history": feature_eng.team_history,
-        "key_features": feature_eng.key_features if hasattr(feature_eng, 'key_features') else pd.DataFrame(),
-        "best_model": classifier.best_model_name if hasattr(classifier, 'best_model_name') else "未知",
-        "accuracy": classifier.best_model_metrics.get('测试集准确率', 0) if hasattr(classifier, 'best_model_metrics') else 0,
-        "precision": classifier.best_model_metrics.get('测试集精确率', 0) if hasattr(classifier, 'best_model_metrics') else 0,
-        "recall": classifier.best_model_metrics.get('测试集召回率', 0) if hasattr(classifier, 'best_model_metrics') else 0,
-        "f1": classifier.best_model_metrics.get('测试集F1分数', 0) if hasattr(classifier, 'best_model_metrics') else 0,
-        "model_comparison": pd.DataFrame({
-            name: {
-                "训练集准确率": m["训练集准确率"],
-                "测试集准确率": m["测试集准确率"],
-                "测试集F1分数": m["测试集F1分数"],
-                "过拟合程度": m["训练集准确率"] - m["测试集准确率"]
-            }
-            for name, m in classifier.all_metrics.items()
-        }).T if hasattr(classifier, 'all_metrics') else pd.DataFrame(),
-        "prediction_example": {
-            "result": "客队胜",
-            "home_win_prob": 0.1813,
-            "draw_prob": 0.1849,
-            "away_win_prob": 0.6338
+            "df": df,
+            "sample_count": len(df),
+            "team_count": len(feature_eng.team_history),
+            "team_history": feature_eng.team_history,
+            "key_features": feature_eng.key_features if hasattr(feature_eng, 'key_features') else pd.DataFrame(),
+            "best_model": classifier.best_model_name if hasattr(classifier, 'best_model_name') else "未知",
+            "accuracy": classifier.best_model_metrics.get('测试集准确率', 0) if hasattr(classifier, 'best_model_metrics') else 0,
+            "precision": classifier.best_model_metrics.get('测试集精确率', 0) if hasattr(classifier, 'best_model_metrics') else 0,
+            "recall": classifier.best_model_metrics.get('测试集召回率', 0) if hasattr(classifier, 'best_model_metrics') else 0,
+            "f1": classifier.best_model_metrics.get('测试集F1分数', 0) if hasattr(classifier, 'best_model_metrics') else 0,
+            "model_comparison": pd.DataFrame({
+                name: {
+                    "训练集准确率": m["训练集准确率"],
+                    "测试集准确率": m["测试集准确率"],
+                    "测试集F1分数": m["测试集F1分数"],
+                    "过拟合程度": m["训练集准确率"] - m["测试集准确率"]
+                }
+                for name, m in classifier.all_metrics.items()
+            }).T if hasattr(classifier, 'all_metrics') else pd.DataFrame(),
+            "prediction_example": {
+                "result": "客队胜",
+                "home_win_prob": 0.1813,
+                "draw_prob": 0.1849,
+                "away_win_prob": 0.6338
+            },
+            "classifier": classifier
         }
-    }
 
 
 def main():
@@ -348,6 +352,103 @@ def main():
     print("2. Task2报告: output/reports/task2_report.md")
     print("3. Task3报告: output/reports/task3_report.md")
     print("4. 综合报告: output/reports/final_report.md")
+
+
+def generate_cla_pre(classifier, test_matches_df=None, home_advantage_factor: float = 0.50):
+    """
+    生成竞赛提交所需的 cla_pre.csv 文件
+    
+    Args:
+        classifier: MatchResultClassifier 实例
+        test_matches_df: 测试比赛数据（可选，默认使用训练后的测试集）
+        home_advantage_factor: 主队优势因子，用于调整主队获胜概率，默认0.50
+    """
+    print("\n" + "=" * 60)
+    print("生成竞赛提交文件: cla_pre.csv")
+    print("=" * 60)
+
+    predictions = []
+    
+    if test_matches_df is not None:
+        for idx, row in test_matches_df.iterrows():
+            home_team = row.get("主队名称", "")
+            away_team = row.get("客队名称", "")
+            stage = row.get("阶段", "小组赛")
+            
+            if home_team and away_team:
+                result = classifier.predict(home_team, away_team, stage, home_advantage_factor)
+                if "error" not in result:
+                    predictions.append({
+                        "预测结果": result["预测结果"]
+                    })
+    else:
+        if classifier.trainer and hasattr(classifier.trainer, 'test_df'):
+            test_df = classifier.trainer.test_df
+            for idx, row in test_df.iterrows():
+                home_team = row.get("主队名称", "")
+                away_team = row.get("客队名称", "")
+                stage = row.get("阶段", "小组赛")
+                
+                if home_team and away_team:
+                    result = classifier.predict(home_team, away_team, stage, home_advantage_factor)
+                    if "error" not in result:
+                        predictions.append({
+                            "预测结果": result["预测结果"]
+                        })
+
+    predictions_df = pd.DataFrame(predictions)
+    
+    cla_pre_path = os.path.join(os.getcwd(), "cla_pre.csv")
+    predictions_df.to_csv(cla_pre_path, index=False, encoding="utf-8-sig")
+    
+    print(f"✓ cla_pre.csv 已生成: {cla_pre_path}")
+    print(f"  预测样本数: {len(predictions_df)}")
+    print(f"  结果分布:\n{predictions_df['预测结果'].value_counts() if '预测结果' in predictions_df.columns else '无预测结果列'}")
+    print("=" * 60)
+
+    return predictions_df
+
+
+def main():
+
+    task1_result = task1()
+
+    task2_result = task2()
+
+    task3_result = task3()
+
+    print("\n\n" + "=" * 60)
+    print("生成美化报告")
+    print("=" * 60)
+
+    print("生成Task1 Markdown报告...")
+    generate_task1_report(task1_result['df'], task1_result['statistics_df'], task1_result)
+
+    print("生成Task2 Markdown报告...")
+    generate_task2_report(task2_result['df'], task2_result.get('stage_statistics'), 
+                        {'pearson': task2_result.get('pearson'), 
+                        'spearman': task2_result.get('spearman'),
+                        'conclusion': task2_result.get('correlation_conclusion')},
+                        {'metrics': task2_result.get('metrics', {})})
+
+    print("生成Task3 Markdown报告...")
+    generate_task3_report(task3_result.get('team_history'), task3_result.get('df'), task3_result)
+
+    print("生成综合报告...")
+    generate_final_report()
+
+    print("\n" + "=" * 60)
+    print("所有任务完成！")
+    print("=" * 60)
+
+    print("\n报告文件列表：")
+    print("-" * 40)
+    print("1. Task1报告: output/reports/task1_report.md")
+    print("2. Task2报告: output/reports/task2_report.md")
+    print("3. Task3报告: output/reports/task3_report.md")
+    print("4. 综合报告: output/reports/final_report.md")
+
+    generate_cla_pre(task3_result['classifier'])
 
 
 if __name__ == "__main__":
